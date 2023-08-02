@@ -1,0 +1,146 @@
+#########################################################
+#Combine All QuickBooks Online Trial Balances in One File
+#########################################################
+print("Processing...")
+import os
+from openpyxl import load_workbook, Workbook
+
+print("Grabbing data...")
+# set input and output paths
+input_path = r".\QB TBs"
+
+
+# create a new workbook for output
+output_wb = Workbook()
+output_ws = output_wb.active
+
+print("Reading and combining files...")
+# iterate through all files in the input directory
+for filename in os.listdir(input_path):
+    if filename.endswith(".xlsx"):
+        # load the workbook and select the active worksheet
+        input_ws = load_workbook(filename=os.path.join(input_path, filename))
+        input_ws = input_ws.active
+        
+        # unmerge cells, delete top 4 rows, and bottom 5 rows
+        for merge in list(input_ws.merged_cells):
+            input_ws.unmerge_cells(range_string=str(merge))
+
+        input_ws.delete_rows(1, 4)
+        input_ws.delete_rows(input_ws.max_row - 4, 5)
+        
+        # set column headers
+        input_ws["A1"] = "Nominals"
+        input_ws["B1"] = "Debit"
+        input_ws["C1"] = "Credit"
+        
+        # insert a new first column with file name
+        input_ws.insert_cols(1)
+        filename_without_ext = os.path.splitext(filename)[0]
+        for i in range(2, input_ws.max_row + 1):
+            input_ws.cell(row=i, column=1, value=filename_without_ext)
+        
+        # converting Debit and Credit to numbers
+        # Assuming column C is column 3 (i.e., 'C') and column E is column 5 (i.e., 'E')
+        debit_col = 3
+        debit_updated_col = 5
+
+        # Iterate through the rows
+        for row in input_ws.iter_rows(min_row=2, min_col=debit_col, values_only=False):
+            debit = row[0].value
+            
+            # Check if Debit is blank
+            if debit is None:
+                debit_updated = 0
+                
+            # Check if Debit starts with "="
+            elif isinstance(debit, str) and debit.startswith('='):
+                debit_updated = float(debit[1:])
+                
+            # Otherwise, assume Debit is a float
+            else:
+                debit_updated = float(debit)
+            
+            # Update the value in column E
+            row_idx = row[0].row
+            input_ws.cell(row=row_idx, column=debit_updated_col, value=debit_updated)
+
+                # Assuming column D is column 4 (i.e., 'D') and column F is column 6 (i.e., 'F')
+        credit_col = 4
+        credit_updated_col = 6
+
+        # Iterate through the rows
+        for row in input_ws.iter_rows(min_row=2, min_col=credit_col, values_only=False):
+            credit = row[0].value
+            
+            # Check if Credit is blank
+            if credit is None:
+                credit_updated = 0
+                
+            # Check if Credit starts with "="
+            elif isinstance(credit, str) and credit.startswith('='):
+                credit_updated = float(credit[1:])
+                
+            # Otherwise, assume Credit is a float
+            else:
+                credit_updated = float(credit)
+            
+            # Update the value in column F
+            row_idx = row[0].row
+            input_ws.cell(row=row_idx, column=credit_updated_col, value=credit_updated)   
+
+        # Create net column 
+            # Assuming column E is column 5 (i.e., 'E') and column F is column 6 (i.e., 'F') and column G is column 7 (i.e., 'G')
+            debit_updated_col = 5
+            credit_updated_col = 6
+            net_col = 7
+
+            # Iterate through the rows
+            for row in input_ws.iter_rows(min_row=2, min_col=debit_updated_col, values_only=False):
+                debit_updated = row[0].value
+                credit_updated = row[1].value
+                
+                # Check if CreditUpdated is None and set it to zero if it is
+                if credit_updated is None:
+                    credit_updated = 0
+                
+                # Compute the net value
+                net = debit_updated - credit_updated
+                
+                # Update the value in column G
+                row_idx = row[0].row
+                input_ws.cell(row=row_idx, column=net_col, value=net) 
+
+        
+        #copy data to output worksheet
+        for row in input_ws.iter_rows(min_row=2, values_only=True):
+            output_ws.append(row)
+        
+#########################################################
+# importing pandas to clean the data from above output
+#########################################################
+import pandas as pd
+
+print("Cleaning data...")
+
+dfData=pd.DataFrame(output_ws.values)
+
+
+dfData.columns = ['File Name','Nominals','DebitOld','CreditOld','DebitNew','CreditNew','Net'] # assing headers
+dfData['Net'] = dfData['Net'].round(2) # round net to 2 decimals
+dfData.drop('DebitOld', axis=1, inplace=True) # delete column
+dfData.drop('CreditOld', axis=1, inplace=True) # delete column
+dfData[['Entity', 'Period']] = dfData['File Name'].str.split(' ', n=1, expand=True) # Split File name to entity and period
+dfData.drop('File Name', axis=1, inplace=True) # delete column
+dfData['Date'] = pd.to_datetime(dfData['Period'], format='%b-%y').dt.strftime('01/%m/%Y') # Date column from period
+dfData=dfData.reindex(columns=['Entity','Date','Nominals','DebitNew','CreditNew','Net', 'Period'])
+dfData.drop('DebitNew', axis=1, inplace=True) # delete column
+dfData.drop('CreditNew', axis=1, inplace=True) # delete column
+dfData['Net'] = dfData['Net'].round(2) # round net to 2 decimals
+
+# save output workbook
+dfData.to_excel('Output file Combined TBs.xlsx', index=False)
+
+print("Process completed! Press any key to close the window")
+input()
+
